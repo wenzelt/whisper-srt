@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tqdm import tqdm
+
 from whisper_srt import config
 from whisper_srt.audio import AudioChunk
 from whisper_srt.config import CHUNK_OVERLAP
@@ -56,6 +58,7 @@ def transcribe_chunks(
     *,
     language: str | None = None,
     model: str = config.MODEL_NAME,
+    quiet: bool = False,
 ) -> list[Segment]:
     """
     Transcribe a list of AudioChunks (from extract_audio_chunks).
@@ -66,7 +69,12 @@ def transcribe_chunks(
     """
     merged: list[Segment] = []
 
-    for i, chunk in enumerate(chunks):
+    chunk_iter = (
+        tqdm(chunks, desc="Transcribing chunks", unit="chunk", disable=quiet)
+        if len(chunks) > 1
+        else chunks
+    )
+    for i, chunk in enumerate(chunk_iter):
         raw_segments = transcribe(chunk.path, language=language, model=model)
 
         for seg in raw_segments:

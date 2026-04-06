@@ -4,6 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 from whisper_srt import config
 from whisper_srt.audio import (
     check_ffmpeg,
@@ -47,6 +49,13 @@ def main() -> None:
         default=config.MODEL_NAME,
         help="Override the Whisper model (HuggingFace repo or local path).",
     )
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress progress bars.",
+    )
 
     args = parser.parse_args()
 
@@ -60,7 +69,12 @@ def main() -> None:
     total_count = len(args.video_files)
     success_count = 0
 
-    for video_path in args.video_files:
+    file_iter = (
+        tqdm(args.video_files, desc="Processing files", unit="file", disable=args.quiet)
+        if len(args.video_files) > 1
+        else args.video_files
+    )
+    for video_path in file_iter:
         temp_files: list[Path] = []
         try:
             print(f"[1/4] Extracting audio from {video_path.name}...")
@@ -81,7 +95,7 @@ def main() -> None:
                 print(
                     f"[2/4] Transcribing {video_path.name} ({duration:.0f}s) with {args.model}..."
                 )
-                segments = transcribe_chunks(chunks, language=args.language, model=args.model)
+                segments = transcribe_chunks(chunks, language=args.language, model=args.model, quiet=args.quiet)
             else:
                 audio_path = extract_audio(video_path)
                 temp_files = [audio_path]
