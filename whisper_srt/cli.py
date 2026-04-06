@@ -1,6 +1,8 @@
 """CLI entry point for whisper-srt."""
 
 import argparse
+import logging
+import re
 import sys
 from pathlib import Path
 
@@ -15,6 +17,18 @@ from whisper_srt.audio import (
 )
 from whisper_srt.srt import segments_to_srt, write_srt
 from whisper_srt.transcribe import transcribe, transcribe_chunks
+
+logger = logging.getLogger(__name__)
+
+_LANGUAGE_RE = re.compile(r"^[a-z]{2,3}$")
+
+
+def _validate_language(value: str) -> str:
+    if not _LANGUAGE_RE.match(value):
+        raise argparse.ArgumentTypeError(
+            f"Invalid language code {value!r}. Expected 2-3 lowercase letters (e.g. 'en', 'de')."
+        )
+    return value
 
 
 def main() -> None:
@@ -31,7 +45,7 @@ def main() -> None:
     parser.add_argument(
         "--language",
         "-l",
-        type=str,
+        type=_validate_language,
         default=None,
         help="Force language code (e.g., 'en', 'de').",
     )
@@ -54,16 +68,23 @@ def main() -> None:
         "-q",
         action="store_true",
         default=False,
-        help="Suppress progress bars.",
+        help="Suppress progress bars and informational messages.",
     )
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.WARNING if args.quiet else logging.INFO,
+        format="%(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
 
     # Pre-flight: verify ffmpeg is available
     try:
         check_ffmpeg()
     except RuntimeError as e:
-        print(e)
+        logger.error("%s", e)
         sys.exit(1)
 
     total_count = len(args.video_files)
@@ -77,7 +98,7 @@ def main() -> None:
     for video_path in file_iter:
         temp_files: list[Path] = []
         try:
-            print(f"[1/4] Extracting audio from {video_path.name}...")
+            logger.info("[1/4] Extracting audio from %s...", video_path.name)
 
             # Determine output path
             if args.output_dir is not None:
@@ -92,33 +113,39 @@ def main() -> None:
                 chunks = extract_audio_chunks(video_path)
                 temp_files = [chunk.path for chunk in chunks]
 
-                print(
-                    f"[2/4] Transcribing {video_path.name} ({duration:.0f}s) with {args.model}..."
+                logger.info(
+                    "[2/4] Transcribing %s (%.0fs) with %s...",
+                    video_path.name,
+                    duration,
+                    args.model,
                 )
                 segments = transcribe_chunks(chunks, language=args.language, model=args.model, quiet=args.quiet)
             else:
                 audio_path = extract_audio(video_path)
                 temp_files = [audio_path]
 
-                print(
-                    f"[2/4] Transcribing {video_path.name} ({duration:.0f}s) with {args.model}..."
+                logger.info(
+                    "[2/4] Transcribing %s (%.0fs) with %s...",
+                    video_path.name,
+                    duration,
+                    args.model,
                 )
                 segments = transcribe(audio_path, language=args.language, model=args.model)
 
-            print(f"[3/4] Formatting SRT for {video_path.name}...")
+            logger.info("[3/4] Formatting SRT for %s...", video_path.name)
             srt_content = segments_to_srt(segments)
 
-            print(f"[4/4] Writing {output_path}...")
+            logger.info("[4/4] Writing %s...", output_path)
             write_srt(srt_content, output_path)
 
             success_count += 1
-            print(f"✓ Done: {output_path} ({len(segments)} segments)")
+            logger.info("✓ Done: %s (%d segments)", output_path, len(segments))
 
-        except Exception as e:  # noqa: BLE001
-            print(f"✗ Error processing {video_path.name}: {e}")
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            logger.error("✗ Error processing %s: %s", video_path.name, e)
 
         finally:
             for tmp in temp_files:
                 tmp.unlink(missing_ok=True)
 
-    print(f"\nProcessed {success_count}/{total_count} files.")
+    logger.info("\nProcessed %d/%d files.", success_count, total_count)

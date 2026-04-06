@@ -54,7 +54,13 @@ def get_audio_duration(video_path: Path) -> float:
             capture_output=True,
             text=True,
         )
-        return float(result.stdout.strip())
+        raw = result.stdout.strip()
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"ffprobe returned unexpected output for {video_path}: {raw!r}"
+            ) from exc
     except subprocess.CalledProcessError as exc:
         raise ValueError(
             f"ffprobe failed to read duration from {video_path}: {exc.stderr}"
@@ -106,6 +112,7 @@ def extract_audio(video_path: Path) -> Path:
             text=True,
         )
     except subprocess.CalledProcessError as exc:
+        output_path.unlink(missing_ok=True)
         raise RuntimeError(
             f"ffmpeg extraction failed: {exc.stderr}"
         ) from exc
@@ -130,47 +137,54 @@ def extract_audio_chunks(video_path: Path) -> list[AudioChunk]:
         return [AudioChunk(path=wav_path, offset=0.0)]
 
     chunks: list[AudioChunk] = []
+    created: list[Path] = []
     start = 0.0
 
-    while start < duration:
-        chunk_duration = min(DEFAULT_CHUNK_DURATION, duration - start)
+    try:
+        while start < duration:
+            chunk_duration = min(DEFAULT_CHUNK_DURATION, duration - start)
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            output_path = Path(tmp.name)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                output_path = Path(tmp.name)
+            created.append(output_path)
 
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-ss",
-                    str(start),
-                    "-i",
-                    str(video_path),
-                    "-t",
-                    str(chunk_duration),
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    "-f",
-                    "wav",
-                    "-y",
-                    str(output_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"ffmpeg chunk extraction failed at offset {start}s: {exc.stderr}"
-            ) from exc
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-ss",
+                        str(start),
+                        "-i",
+                        str(video_path),
+                        "-t",
+                        str(chunk_duration),
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        "-f",
+                        "wav",
+                        "-y",
+                        str(output_path),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise RuntimeError(
+                    f"ffmpeg chunk extraction failed at offset {start}s: {exc.stderr}"
+                ) from exc
 
-        chunks.append(AudioChunk(path=output_path, offset=start))
+            chunks.append(AudioChunk(path=output_path, offset=start))
 
-        next_start = start + DEFAULT_CHUNK_DURATION - CHUNK_OVERLAP
-        if next_start >= duration:
-            break
-        start = next_start
+            next_start = start + DEFAULT_CHUNK_DURATION - CHUNK_OVERLAP
+            if next_start >= duration:
+                break
+            start = next_start
+    except Exception:
+        for p in created:
+            p.unlink(missing_ok=True)
+        raise
 
     return chunks

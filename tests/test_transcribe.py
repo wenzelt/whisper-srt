@@ -110,24 +110,21 @@ def test_transcribe_chunks_offset_applied() -> None:
 
 def test_transcribe_chunks_deduplication() -> None:
     """Two overlapping chunks; verify segments in overlap region are deduplicated."""
-    # Chunk 0: offset=0, duration covers 0..1800
-    # Chunk 1: offset=1800-CHUNK_OVERLAP=1770, covers 1770..3570
-    # Overlap region for chunk 1: segments with adjusted_start < chunk1.offset - CHUNK_OVERLAP
-    # i.e. adjusted_start < 1770 - 30 = 1740 should be dropped
+    # Chunk 0: offset=0, covers 0..1800 (DEFAULT_CHUNK_DURATION=1800)
+    # Chunk 1: offset=1770 (=1800-CHUNK_OVERLAP), covers 1770..3570
+    # Overlap region: 1770..1800
+    # Segments from chunk 1 with adjusted_start < chunk1.offset + CHUNK_OVERLAP (=1800)
+    # fall within the overlap and are dropped; only segments >= 1800 are kept.
 
     chunk0_segments = [
         {"start": 0.0, "end": 2.0, "text": "Start"},
-        {"start": 1760.0, "end": 1762.0, "text": "In overlap"},
+        {"start": 1795.0, "end": 1798.0, "text": "In overlap"},  # kept from chunk 0
     ]
     chunk1_segments = [
-        # adjusted_start = 5.0 + 1770 = 1775.0, which >= 1740, so kept
-        {"start": 5.0, "end": 7.0, "text": "After overlap"},
-        # adjusted_start = 0.5 + 1770 = 1770.5 which is < 1800 (prev chunk end) but >= 1740, kept
-        # Actually let's put one that should be dropped: adjusted_start < 1740
-        # raw start = -30 + something... let's use raw start that makes adjusted < 1740
-        # adjusted_start = raw_start + 1770; to be < 1740: raw_start < -30 -- impossible
-        # So let's put raw_start = 0 -> adjusted = 1770 >= 1740, kept
-        {"start": 0.0, "end": 2.0, "text": "Chunk1 start"},
+        # adjusted = 5.0 + 1770 = 1775.0 < 1800 → DROPPED (overlap region)
+        {"start": 5.0, "end": 7.0, "text": "In overlap"},
+        # adjusted = 30.0 + 1770 = 1800.0 >= 1800 → KEPT
+        {"start": 30.0, "end": 32.0, "text": "After overlap"},
     ]
 
     call_count = 0
@@ -146,13 +143,10 @@ def test_transcribe_chunks_deduplication() -> None:
 
         result = transcribe_chunks([chunk0, chunk1])
 
-    # chunk0 segs: start=0, start=1760 (both kept, no filter on first chunk)
-    # chunk1 segs: adjusted=1775 (kept), adjusted=1770 (kept, >= 1740)
-    starts = [s.start for s in result]
-    # No duplicates — each unique segment appears only once
-    assert len(starts) == len(set(starts))
-    # All results are from the expected set
-    assert all(s.start >= 0.0 for s in result)
+    # chunk0 segs: 0.0 and 1795.0 (both kept — first chunk, no filter)
+    # chunk1 segs: 1775.0 dropped (< 1800), 1800.0 kept
+    assert [s.start for s in result] == [0.0, 1795.0, 1800.0]
+    assert [s.text for s in result] == ["Start", "In overlap", "After overlap"]
 
 
 def test_transcribe_chunks_sorted() -> None:

@@ -1,5 +1,6 @@
 """Unit tests for whisper_srt.cli module."""
 
+import runpy
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -277,3 +278,16 @@ def test_main_prints_summary(tmp_path: Path, capsys: pytest.CaptureFixture) -> N
 
     captured = capsys.readouterr()
     assert "Processed 1/1 files." in captured.out
+
+
+# ---------------------------------------------------------------------------
+# test___main__
+# ---------------------------------------------------------------------------
+
+
+def test_main_module_invokes_main() -> None:
+    """python -m whisper_srt calls cli.main()."""
+    with patch("whisper_srt.cli.main") as mock_main:
+        runpy.run_module("whisper_srt", run_name="__main__")
+
+    mock_main.assert_called_once()

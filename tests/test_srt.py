@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from whisper_srt.srt import Segment, format_timestamp, segments_to_srt, write_srt
 
 # --- format_timestamp ---
@@ -56,7 +58,7 @@ def test_segments_to_srt_unicode():
 
 # --- write_srt ---
 
-def test_write_srt_creates_file(tmp_path):
+def test_write_srt_creates_file(tmp_path: Path) -> None:
     output = tmp_path / "output.srt"
     content = "1\n00:00:00,000 --> 00:00:01,000\nHello"
     write_srt(content, output)
@@ -64,14 +66,14 @@ def test_write_srt_creates_file(tmp_path):
     assert output.read_text(encoding="utf-8-sig") == content
 
 
-def test_write_srt_utf8_bom(tmp_path):
+def test_write_srt_utf8_bom(tmp_path: Path) -> None:
     output = tmp_path / "output.srt"
     write_srt("Hello", output)
     raw = output.read_bytes()
     assert raw[:3] == b"\xef\xbb\xbf"
 
 
-def test_write_srt_returns_path(tmp_path):
+def test_write_srt_returns_path(tmp_path: Path) -> None:
     output = tmp_path / "output.srt"
     result = write_srt("Hello", output)
     assert result == output

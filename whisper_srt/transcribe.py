@@ -81,13 +81,10 @@ def transcribe_chunks(
             adjusted_start = seg.start + chunk.offset
             adjusted_end = seg.end + chunk.offset
 
-            if i > 0:
-                # previous_chunk_end is the offset of the current chunk
-                # (chunks are contiguous with overlap)
-                previous_chunk_end = chunk.offset
-                overlap_start = previous_chunk_end - CHUNK_OVERLAP
-                if adjusted_start < overlap_start:
-                    continue
+            if i > 0 and adjusted_start < chunk.offset + CHUNK_OVERLAP:
+                # Drop segments from this chunk whose adjusted start falls within
+                # the overlap region (already covered by the previous chunk).
+                continue
 
             merged.append(Segment(start=adjusted_start, end=adjusted_end, text=seg.text))
 
