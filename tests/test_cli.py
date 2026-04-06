@@ -281,6 +281,57 @@ def test_main_prints_summary(tmp_path: Path, capsys: pytest.CaptureFixture) -> N
 
 
 # ---------------------------------------------------------------------------
+# test_skip_existing
+# ---------------------------------------------------------------------------
+
+
+def test_main_skips_existing_srt(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """When SRT already exists, file is skipped and counted as success."""
+    from whisper_srt.cli import main
+
+    video = tmp_path / "movie.mp4"
+    video.touch()
+    srt = tmp_path / "movie.srt"
+    srt.touch()  # existing SRT
+
+    with (
+        patch.object(sys, "argv", ["whisper-srt", str(video)]),
+        patch(PATCH_CHECK_FFMPEG),
+        patch(PATCH_EXTRACT_AUDIO) as mock_extract,
+    ):
+        main()
+
+    mock_extract.assert_not_called()
+    captured = capsys.readouterr()
+    assert "Skipping" in captured.out
+    assert "Processed 1/1 files." in captured.out
+
+
+def test_main_overwrite_flag_processes_existing_srt(tmp_path: Path) -> None:
+    """With --overwrite, existing SRT files are not skipped."""
+    from whisper_srt.cli import main
+
+    video = tmp_path / "movie.mp4"
+    video.touch()
+    srt = tmp_path / "movie.srt"
+    srt.touch()  # existing SRT
+
+    with (
+        patch.object(sys, "argv", ["whisper-srt", "--overwrite", str(video)]),
+        patch(PATCH_CHECK_FFMPEG),
+        patch(PATCH_GET_DURATION, return_value=_SHORT_DURATION),
+        patch(PATCH_EXTRACT_AUDIO, return_value=Path("/tmp/test.wav")) as mock_extract,
+        patch(PATCH_TRANSCRIBE, return_value=[_DEFAULT_SEGMENT]),
+        patch(PATCH_SEGMENTS_TO_SRT, return_value="1\n..."),
+        patch(PATCH_WRITE_SRT, return_value=srt),
+        patch.object(Path, "unlink"),
+    ):
+        main()
+
+    mock_extract.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # test___main__
 # ---------------------------------------------------------------------------
 

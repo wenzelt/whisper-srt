@@ -70,6 +70,12 @@ def main() -> None:
         default=False,
         help="Suppress progress bars and informational messages.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Overwrite existing SRT files. By default, existing files are skipped.",
+    )
 
     args = parser.parse_args()
 
@@ -105,6 +111,11 @@ def main() -> None:
                 output_path = args.output_dir / (video_path.stem + ".srt")
             else:
                 output_path = video_path.with_suffix(".srt")
+
+            if not args.overwrite and output_path.exists():
+                logger.info("⏭ Skipping %s (SRT already exists)", video_path.name)
+                success_count += 1
+                continue
 
             # Check duration to decide chunking strategy
             duration = get_audio_duration(video_path)

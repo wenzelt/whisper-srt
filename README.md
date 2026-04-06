@@ -58,10 +58,18 @@ uv run whisper-srt -m mlx-community/whisper-medium-mlx movie.mov
 uv run whisper-srt -q movie.mov
 ```
 
+### Force overwrite existing SRT
+
+By default, files with an existing `.srt` are skipped. Use `--overwrite` to re-transcribe:
+
+```bash
+uv run whisper-srt --overwrite movie.mov
+```
+
 ### All options
 
 ```
-usage: whisper-srt [-h] [-l LANGUAGE] [-o OUTPUT_DIR] [-m MODEL] [-q] video_files [video_files ...]
+usage: whisper-srt [-h] [-l LANGUAGE] [-o OUTPUT_DIR] [-m MODEL] [-q] [--overwrite] video_files [video_files ...]
 
 positional arguments:
   video_files           One or more video file paths.
@@ -71,6 +79,7 @@ options:
   -o, --output-dir      Output directory. Defaults to same directory as the video.
   -m, --model           Whisper model (HuggingFace repo or local path).
   -q, --quiet           Suppress progress bars and informational messages.
+  --overwrite           Overwrite existing SRT files (default: skip).
 ```
 
 ## Supported formats
