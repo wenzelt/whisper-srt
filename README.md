@@ -11,7 +11,7 @@ Local SRT subtitle generator for Apple Silicon. Extracts audio from video files 
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/whisper-srt.git
+git clone https://github.com/wenzelt/whisper-srt.git
 cd whisper-srt
 uv sync
 ```
@@ -23,37 +23,45 @@ uv sync
 ### Single file
 
 ```bash
-python -m whisper_srt movie.mov
+uv run whisper-srt movie.mov
 ```
 
 ### Batch processing
 
 ```bash
-python -m whisper_srt *.mp4
+uv run whisper-srt *.mp4
 ```
 
 ### Force language
 
 ```bash
-python -m whisper_srt -l en movie.mov
+uv run whisper-srt -l de movie.mov
 ```
+
+Language codes follow ISO 639-1 (2–3 lowercase letters, e.g. `en`, `de`, `fr`, `ja`). Omit to auto-detect.
 
 ### Custom output directory
 
 ```bash
-python -m whisper_srt -o ./subs/ movie.mov
+uv run whisper-srt -o ./subs/ movie.mov
 ```
 
 ### Smaller model (faster, less accurate)
 
 ```bash
-python -m whisper_srt -m mlx-community/whisper-medium-mlx movie.mov
+uv run whisper-srt -m mlx-community/whisper-medium-mlx movie.mov
+```
+
+### Suppress output
+
+```bash
+uv run whisper-srt -q movie.mov
 ```
 
 ### All options
 
 ```
-usage: whisper-srt [-h] [-l LANGUAGE] [-o OUTPUT_DIR] [-m MODEL] video_files [video_files ...]
+usage: whisper-srt [-h] [-l LANGUAGE] [-o OUTPUT_DIR] [-m MODEL] [-q] video_files [video_files ...]
 
 positional arguments:
   video_files           One or more video file paths.
@@ -62,6 +70,7 @@ options:
   -l, --language        Force language code (e.g., 'en', 'de'). Auto-detected if omitted.
   -o, --output-dir      Output directory. Defaults to same directory as the video.
   -m, --model           Whisper model (HuggingFace repo or local path).
+  -q, --quiet           Suppress progress bars and informational messages.
 ```
 
 ## Supported formats
