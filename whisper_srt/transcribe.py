@@ -15,6 +15,14 @@ except ImportError:
     _mlx_whisper = None  # type: ignore[assignment]
 
 
+def _ensure_mlx_whisper() -> None:
+    """Raise RuntimeError if mlx-whisper is not installed."""
+    if _mlx_whisper is None:
+        raise RuntimeError(
+            "mlx-whisper is not installed. Install it via: pip install mlx-whisper"
+        )
+
+
 def transcribe(
     audio_path: Path,
     *,
@@ -26,11 +34,10 @@ def transcribe(
     Returns list of Segment (immutable, typed).
     Downloads model on first run (~3 GB, cached to ~/.cache/huggingface/).
     """
-    if _mlx_whisper is None:
-        raise RuntimeError(
-            "mlx-whisper is not installed. Install it via: pip install mlx-whisper"
-        )
+    _ensure_mlx_whisper()
 
+    # _mlx_whisper is already checked by _ensure_mlx_whisper, but type checker might complain
+    assert _mlx_whisper is not None
     result = _mlx_whisper.transcribe(
         str(audio_path),
         path_or_hf_repo=model,
@@ -40,7 +47,7 @@ def transcribe(
 
     try:
         raw_segments = result["segments"]
-    except KeyError:
+    except (KeyError, TypeError):
         return []
 
     return [
@@ -67,6 +74,9 @@ def transcribe_chunks(
     whose adjusted start time falls within the overlap period of the previous chunk's end.
     Returns a merged, time-ordered list of Segments.
     """
+    if not chunks:
+        return []
+
     merged: list[Segment] = []
 
     chunk_iter = (
@@ -86,6 +96,8 @@ def transcribe_chunks(
                 # the overlap region (already covered by the previous chunk).
                 continue
 
-            merged.append(Segment(start=adjusted_start, end=adjusted_end, text=seg.text))
+            merged.append(
+                Segment(start=adjusted_start, end=adjusted_end, text=seg.text)
+            )
 
     return sorted(merged, key=lambda s: s.start)

@@ -31,7 +31,80 @@ def _validate_language(value: str) -> str:
     return value
 
 
-def main() -> None:
+def _setup_logging(quiet: bool) -> None:
+    """Configure logging based on quiet flag."""
+    logging.basicConfig(
+        level=logging.WARNING if quiet else logging.INFO,
+        format="%(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+
+
+def _process_single_video(video_path: Path, args: argparse.Namespace) -> bool:
+    """Process a single video file. Returns True if successful, False otherwise."""
+    temp_files: list[Path] = []
+    try:
+        logger.info("[1/4] Extracting audio from %s...", video_path.name)
+
+        # Determine output path
+        if args.output_dir is not None:
+            output_path = args.output_dir / (video_path.stem + ".srt")
+        else:
+            output_path = video_path.with_suffix(".srt")
+
+        if not args.overwrite and output_path.exists():
+            logger.info("⏭ Skipping %s (SRT already exists)", video_path.name)
+            return True
+
+        # Check duration to decide chunking strategy
+        duration = get_audio_duration(video_path)
+
+        if duration > config.LONG_VIDEO_THRESHOLD:
+            chunks = extract_audio_chunks(video_path)
+            temp_files = [chunk.path for chunk in chunks]
+
+            logger.info(
+                "[2/4] Transcribing %s (%.0fs) with %s...",
+                video_path.name,
+                duration,
+                args.model,
+            )
+            segments = transcribe_chunks(
+                chunks, language=args.language, model=args.model, quiet=args.quiet
+            )
+        else:
+            audio_path = extract_audio(video_path)
+            temp_files = [audio_path]
+
+            logger.info(
+                "[2/4] Transcribing %s (%.0fs) with %s...",
+                video_path.name,
+                duration,
+                args.model,
+            )
+            segments = transcribe(audio_path, language=args.language, model=args.model)
+
+        logger.info("[3/4] Formatting SRT for %s...", video_path.name)
+        srt_content = segments_to_srt(segments)
+
+        logger.info("[4/4] Writing %s...", output_path)
+        write_srt(srt_content, output_path)
+
+        logger.info("✓ Done: %s (%d segments)", output_path, len(segments))
+        return True
+
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        logger.error("✗ Error processing %s: %s", video_path.name, e)
+        return False
+
+    finally:
+        for tmp in temp_files:
+            tmp.unlink(missing_ok=True)
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         prog="whisper-srt",
         description="Generate SRT subtitles from video files using mlx-whisper.",
@@ -76,15 +149,12 @@ def main() -> None:
         default=False,
         help="Overwrite existing SRT files. By default, existing files are skipped.",
     )
+    return parser.parse_args()
 
-    args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.WARNING if args.quiet else logging.INFO,
-        format="%(message)s",
-        stream=sys.stdout,
-        force=True,
-    )
+def main() -> None:
+    args = parse_args()
+    _setup_logging(args.quiet)
 
     # Pre-flight: verify ffmpeg is available
     try:
@@ -101,62 +171,9 @@ def main() -> None:
         if len(args.video_files) > 1
         else args.video_files
     )
+
     for video_path in file_iter:
-        temp_files: list[Path] = []
-        try:
-            logger.info("[1/4] Extracting audio from %s...", video_path.name)
-
-            # Determine output path
-            if args.output_dir is not None:
-                output_path = args.output_dir / (video_path.stem + ".srt")
-            else:
-                output_path = video_path.with_suffix(".srt")
-
-            if not args.overwrite and output_path.exists():
-                logger.info("⏭ Skipping %s (SRT already exists)", video_path.name)
-                success_count += 1
-                continue
-
-            # Check duration to decide chunking strategy
-            duration = get_audio_duration(video_path)
-
-            if duration > config.LONG_VIDEO_THRESHOLD:
-                chunks = extract_audio_chunks(video_path)
-                temp_files = [chunk.path for chunk in chunks]
-
-                logger.info(
-                    "[2/4] Transcribing %s (%.0fs) with %s...",
-                    video_path.name,
-                    duration,
-                    args.model,
-                )
-                segments = transcribe_chunks(chunks, language=args.language, model=args.model, quiet=args.quiet)
-            else:
-                audio_path = extract_audio(video_path)
-                temp_files = [audio_path]
-
-                logger.info(
-                    "[2/4] Transcribing %s (%.0fs) with %s...",
-                    video_path.name,
-                    duration,
-                    args.model,
-                )
-                segments = transcribe(audio_path, language=args.language, model=args.model)
-
-            logger.info("[3/4] Formatting SRT for %s...", video_path.name)
-            srt_content = segments_to_srt(segments)
-
-            logger.info("[4/4] Writing %s...", output_path)
-            write_srt(srt_content, output_path)
-
+        if _process_single_video(video_path, args):
             success_count += 1
-            logger.info("✓ Done: %s (%d segments)", output_path, len(segments))
-
-        except (FileNotFoundError, ValueError, RuntimeError) as e:
-            logger.error("✗ Error processing %s: %s", video_path.name, e)
-
-        finally:
-            for tmp in temp_files:
-                tmp.unlink(missing_ok=True)
 
     logger.info("\nProcessed %d/%d files.", success_count, total_count)

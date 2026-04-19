@@ -1,9 +1,11 @@
 """Audio extraction utilities using ffmpeg."""
 
+import contextlib
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Generator
 
 from whisper_srt.config import (
     CHUNK_OVERLAP,
@@ -17,6 +19,17 @@ from whisper_srt.config import (
 class AudioChunk:
     path: Path  # path to the WAV temp file
     offset: float  # start time in original audio (seconds) — 0.0 for no chunking
+
+
+@contextlib.contextmanager
+def temporary_wav_file() -> Generator[Path, None, None]:
+    """Context manager for creating a temporary WAV file that is deleted on exit."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = Path(tmp.name)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def check_ffmpeg() -> None:
