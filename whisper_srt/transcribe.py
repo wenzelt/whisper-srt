@@ -1,8 +1,7 @@
 """Transcription utilities using mlx-whisper."""
 
 from pathlib import Path
-
-from tqdm import tqdm
+from typing import Callable, Optional
 
 from whisper_srt import config
 from whisper_srt.audio import AudioChunk
@@ -66,6 +65,7 @@ def transcribe_chunks(
     language: str | None = None,
     model: str = config.MODEL_NAME,
     quiet: bool = False,
+    progress_callback: Optional[Callable[[], None]] = None,
 ) -> list[Segment]:
     """
     Transcribe a list of AudioChunks (from extract_audio_chunks).
@@ -79,12 +79,7 @@ def transcribe_chunks(
 
     merged: list[Segment] = []
 
-    chunk_iter = (
-        tqdm(chunks, desc="Transcribing chunks", unit="chunk", disable=quiet)
-        if len(chunks) > 1
-        else chunks
-    )
-    for i, chunk in enumerate(chunk_iter):
+    for i, chunk in enumerate(chunks):
         raw_segments = transcribe(chunk.path, language=language, model=model)
 
         for seg in raw_segments:
@@ -99,5 +94,8 @@ def transcribe_chunks(
             merged.append(
                 Segment(start=adjusted_start, end=adjusted_end, text=seg.text)
             )
+
+        if progress_callback:
+            progress_callback()
 
     return sorted(merged, key=lambda s: s.start)

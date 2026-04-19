@@ -5,8 +5,19 @@ import logging
 import re
 import sys
 from pathlib import Path
+from typing import Callable, Optional
 
-from tqdm import tqdm
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from whisper_srt import config
 from whisper_srt.audio import (
@@ -18,7 +29,8 @@ from whisper_srt.audio import (
 from whisper_srt.srt import segments_to_srt, write_srt
 from whisper_srt.transcribe import transcribe, transcribe_chunks
 
-logger = logging.getLogger(__name__)
+console = Console()
+logger = logging.getLogger("whisper-srt")
 
 _LANGUAGE_RE = re.compile(r"^[a-z]{2,3}$")
 
@@ -36,17 +48,18 @@ def _setup_logging(quiet: bool) -> None:
     logging.basicConfig(
         level=logging.WARNING if quiet else logging.INFO,
         format="%(message)s",
-        stream=sys.stdout,
+        datefmt="[%X]",
+        handlers=[RichHandler(console=console, show_path=False, markup=True)],
         force=True,
     )
 
 
-def _process_single_video(video_path: Path, args: argparse.Namespace) -> bool:
+def _process_single_video(
+    video_path: Path, args: argparse.Namespace, progress: Optional[Progress] = None
+) -> bool:
     """Process a single video file. Returns True if successful, False otherwise."""
     temp_files: list[Path] = []
     try:
-        logger.info("[1/4] Extracting audio from %s...", video_path.name)
-
         # Determine output path
         if args.output_dir is not None:
             output_path = args.output_dir / (video_path.stem + ".srt")
@@ -54,48 +67,63 @@ def _process_single_video(video_path: Path, args: argparse.Namespace) -> bool:
             output_path = video_path.with_suffix(".srt")
 
         if not args.overwrite and output_path.exists():
-            logger.info("⏭ Skipping %s (SRT already exists)", video_path.name)
+            logger.info("⏭ [yellow]Skipping[/yellow] %s (SRT already exists)", video_path.name)
             return True
 
         # Check duration to decide chunking strategy
         duration = get_audio_duration(video_path)
 
         if duration > config.LONG_VIDEO_THRESHOLD:
-            chunks = extract_audio_chunks(video_path)
-            temp_files = [chunk.path for chunk in chunks]
+            with console.status(f"[bold blue]Extracting audio chunks[/bold blue] from {video_path.name}..."):
+                chunks = extract_audio_chunks(video_path)
+                temp_files = [chunk.path for chunk in chunks]
 
             logger.info(
-                "[2/4] Transcribing %s (%.0fs) with %s...",
+                "Transcribing %s (%.0fs) in [cyan]%d chunks[/cyan] using [green]%s[/green]...",
                 video_path.name,
                 duration,
+                len(chunks),
                 args.model,
             )
-            segments = transcribe_chunks(
-                chunks, language=args.language, model=args.model, quiet=args.quiet
-            )
+            
+            # Use progress for chunks if we have multiple
+            if progress:
+                chunk_task = progress.add_task(
+                    f"Transcribing {video_path.name}", total=len(chunks)
+                )
+                segments = transcribe_chunks(
+                    chunks, 
+                    language=args.language, 
+                    model=args.model, 
+                    quiet=args.quiet,
+                    progress_callback=lambda: progress.advance(chunk_task)
+                )
+                progress.remove_task(chunk_task)
+            else:
+                segments = transcribe_chunks(
+                    chunks, language=args.language, model=args.model, quiet=args.quiet
+                )
         else:
-            audio_path = extract_audio(video_path)
-            temp_files = [audio_path]
+            with console.status(f"[bold blue]Extracting audio[/bold blue] from {video_path.name}..."):
+                audio_path = extract_audio(video_path)
+                temp_files = [audio_path]
 
-            logger.info(
-                "[2/4] Transcribing %s (%.0fs) with %s...",
-                video_path.name,
-                duration,
-                args.model,
-            )
-            segments = transcribe(audio_path, language=args.language, model=args.model)
+            with console.status(
+                f"[bold green]Transcribing[/bold green] {video_path.name} (%.0fs) with {args.model}..."
+            ):
+                segments = transcribe(audio_path, language=args.language, model=args.model)
 
-        logger.info("[3/4] Formatting SRT for %s...", video_path.name)
-        srt_content = segments_to_srt(segments)
+        with console.status(f"[bold cyan]Formatting SRT[/bold cyan] for {video_path.name}..."):
+            srt_content = segments_to_srt(segments)
 
-        logger.info("[4/4] Writing %s...", output_path)
-        write_srt(srt_content, output_path)
+        with console.status(f"[bold magenta]Writing[/bold magenta] {output_path}..."):
+            write_srt(srt_content, output_path)
 
-        logger.info("✓ Done: %s (%d segments)", output_path, len(segments))
+        logger.info("✓ [green]Done:[/green] %s (%d segments)", output_path, len(segments))
         return True
 
     except (FileNotFoundError, ValueError, RuntimeError) as e:
-        logger.error("✗ Error processing %s: %s", video_path.name, e)
+        logger.error("✗ [red]Error processing[/red] %s: %s", video_path.name, e)
         return False
 
     finally:
@@ -160,20 +188,37 @@ def main() -> None:
     try:
         check_ffmpeg()
     except RuntimeError as e:
-        logger.error("%s", e)
+        logger.error("[red]%s[/red]", e)
         sys.exit(1)
 
     total_count = len(args.video_files)
     success_count = 0
 
-    file_iter = (
-        tqdm(args.video_files, desc="Processing files", unit="file", disable=args.quiet)
-        if len(args.video_files) > 1
-        else args.video_files
-    )
+    if args.quiet:
+        for video_path in args.video_files:
+            if _process_single_video(video_path, args):
+                success_count += 1
+    else:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TextColumn("<"),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            # We use two progress bars if there are multiple files
+            if total_count > 1:
+                overall_task = progress.add_task("Overall Progress", total=total_count)
+                for video_path in args.video_files:
+                    if _process_single_video(video_path, args, progress):
+                        success_count += 1
+                    progress.advance(overall_task)
+            else:
+                # For a single file, just pass the progress object to handle chunk progress
+                if _process_single_video(args.video_files[0], args, progress):
+                    success_count += 1
 
-    for video_path in file_iter:
-        if _process_single_video(video_path, args):
-            success_count += 1
-
-    logger.info("\nProcessed %d/%d files.", success_count, total_count)
+    logger.info("\n[bold]Processed %d/%d files.[/bold]", success_count, total_count)

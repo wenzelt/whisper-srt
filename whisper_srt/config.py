@@ -5,6 +5,6 @@ SAMPLE_RATE = 16_000  # Hz, required by Whisper
 SUPPORTED_EXTENSIONS = frozenset(
     {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mts", ".m2ts"}
 )
-DEFAULT_CHUNK_DURATION = 1800  # 30 minutes in seconds
+DEFAULT_CHUNK_DURATION = 600  # 10 minutes in seconds
 CHUNK_OVERLAP = 30  # seconds of overlap between chunks
-LONG_VIDEO_THRESHOLD = 7200  # 2 hours in seconds; videos longer than this get chunked
+LONG_VIDEO_THRESHOLD = 600  # 10 minutes in seconds; videos longer than this get chunked
