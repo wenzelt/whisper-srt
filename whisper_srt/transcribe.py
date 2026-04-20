@@ -41,7 +41,7 @@ def transcribe(
         str(audio_path),
         path_or_hf_repo=model,
         language=language,
-        verbose=False,
+        verbose=None,
     )
 
     try:
